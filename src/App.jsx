@@ -7,16 +7,19 @@ import { AiOutlineLoading3Quarters } from "react-icons/ai";
 import { MapContainer, TileLayer, Popup, Marker, Circle } from "react-leaflet";
 import { Icon } from "leaflet";
 import gpsIcon from "./assets/icon/gps-icon.png";
+import axios from "./axios/config.js";
 
 function App() {
   const [locations, setLocations] = useState([]);
   const [users, setUsers] = useState([]);
   const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(true);
-  const [position, setPosition] = useState();
   const [map, setMap] = useState(null);
+  const [position, setPosition] = useState({});
 
   let centerOut = [-35.4364, -71.64442];
+
+  //console.log("defaultPosition: ", defaultPosition);
 
   const getLocationData = async () => {
     const locationReef = ref(db, "location");
@@ -64,20 +67,40 @@ function App() {
   useEffect(() => {
     getUsersData();
     getLocationData();
+    //console.log("userId: ", userId);
+
     // Intervalo para actualizar los datos cada 6segundos
-    if (users != undefined && locations != undefined) {
+    if (users) {
       setInterval(() => {
-        getUsersData();
         getLocationData();
+        let pos = locations?.find((location) => location.id === userId);
+        let actPos = {
+          lat: pos?.latitude,
+          lng: pos?.longitude,
+        };
+        console.log("actPos: ", actPos);
+
+        if (map) {
+          setPosition(actPos);
+          map.setView(actPos, map.getZoom());
+          console.log("Position: ", position);
+        }
       }, 6000);
     }
     setInterval(() => {
       setLoading(false);
     }, 3000);
-  }, []);
+  }, [position]);
   // console.log(users);
   // console.log(userId);
-
+  const resetState = () => {
+    setPosition(''); // Restablece el estado a su valor inicial
+  };
+  let userLocation = locations?.find((location) => location.id === userId);
+  let userPosition = {
+    lat: userLocation?.latitude,
+    lng: userLocation?.longitude,
+  };
   let userData = users?.find((user) => user.id === userId);
   // let position = {
   //   lat: userLocationData?.latitude,
@@ -85,15 +108,12 @@ function App() {
   // };
 
   //console.log(mapCenter);
-  let pos = locations?.find((location) => location.id === userId);
-  let actPos = {
-    lat: pos?.latitude,
-    lng: pos?.longitude,
-  };
 
   const onChange = (e) => {
+    resetState();
     // Dividir la cadena en dos partes usando split(',')
     const valuesArray = e.split(",");
+    setUserId(valuesArray[0]);
     // Crear un objeto con las dos partes
     const valuesObject = {
       id: valuesArray[0],
@@ -105,12 +125,13 @@ function App() {
       lng: valuesObject.lng,
     };
     //console.log(coordenadasObjeto.id);
-    setUserId(valuesObject.id);
-    if (locations) {
-      setPosition(latLng);
+
+    console.log("onChange:", latLng);
+    setPosition("");
+    setPosition(latLng);
+    if (map) {
       map.setView(latLng, map.getZoom());
     }
-    
   };
 
   // Definir los límites del rango de coordenadas
@@ -132,15 +153,16 @@ function App() {
   };
 
   useEffect(() => {
-    if (position) {
+    if (userId != "") {
       if (!isWithinBounds(position)) {
-        alert("Estás fuera del rango permitido");
+        console.log("Este usuario está fuera del rango permitido");
         // Aquí puedes agregar lógica adicional si la posición está fuera del rango
+        axios.get("/send-message");
       }
     }
   }, [position]);
 
-  console.log(position);
+  //console.log(position);
 
   const customIcon = new Icon({
     iconUrl: gpsIcon,
@@ -194,7 +216,7 @@ function App() {
                   </h4>
                   <ul className="text-left text-sm">
                     <li>
-                      <b>Nombre:{" "}</b>
+                      <b>Nombre: </b>
                       {`${userData?.nombre} ${
                         userData?.apellido ? userData?.apellido : ""
                       } ${
@@ -203,8 +225,13 @@ function App() {
                           : ""
                       }`}
                     </li>
-                    <li><b>Correo: </b> {userData?.email}</li>
-                    <li><b>Teléfono: </b>{userData?.telefono}</li>
+                    <li>
+                      <b>Correo: </b> {userData?.email}
+                    </li>
+                    <li>
+                      <b>Teléfono: </b>
+                      {userData?.telefono}
+                    </li>
                   </ul>
                 </div>
                 <section className="flex flex-col gap-3">
@@ -232,8 +259,10 @@ function App() {
                       />
                       <Marker icon={customIcon} position={position} isActive>
                         <Popup isActive>
-                          <p>{userData?.nombre}{" "}
-                          {userData?.apellido ? userData?.apellido : ""}</p>
+                          <p>
+                            {userData?.nombre}{" "}
+                            {userData?.apellido ? userData?.apellido : ""}
+                          </p>
                           <p>Latitud: {position.lat}</p>
                           <p>Longitud: {position.lng}</p>
                         </Popup>
