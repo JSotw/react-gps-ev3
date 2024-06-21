@@ -15,11 +15,11 @@ function App() {
   const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(true);
   const [map, setMap] = useState(null);
-  const [position, setPosition] = useState({});
+  const [position, setPosition] = useState({ lat: null, lng: null });
+  const [userLocation, setUserLocation] = useState(null);
+  const [messageSent, setMessageSent] = useState(false); // Estado para saber si el mensaje ha sido enviado
 
-  let centerOut = [-35.4364, -71.64442];
-
-  //console.log("defaultPosition: ", defaultPosition);
+  console.log(position);
 
   const getLocationData = async () => {
     const locationReef = ref(db, "location");
@@ -32,7 +32,6 @@ function App() {
               ...data,
             })
           );
-          //console.log(arrayData);
           setLocations(arrayData);
         } else {
           console.log("No data");
@@ -42,6 +41,7 @@ function App() {
         console.log(error);
       });
   };
+
   const getUsersData = async () => {
     const usersReef = ref(db, "users");
     get(usersReef)
@@ -53,7 +53,6 @@ function App() {
               ...data,
             })
           );
-          //console.log(arrayData);
           setUsers(arrayData);
         } else {
           console.log("No data");
@@ -67,82 +66,59 @@ function App() {
   useEffect(() => {
     getUsersData();
     getLocationData();
-    //console.log("userId: ", userId);
-
-    // Intervalo para actualizar los datos cada 6segundos
-    if (users) {
-      setInterval(() => {
-        getLocationData();
-        let pos = locations?.find((location) => location.id === userId);
-        let actPos = {
-          lat: pos?.latitude,
-          lng: pos?.longitude,
-        };
-        console.log("actPos: ", actPos);
-
-        if (map) {
-          setPosition(actPos);
-          map.setView(actPos, map.getZoom());
-          console.log("Position: ", position);
-        }
-      }, 6000);
-    }
-    setInterval(() => {
+    setTimeout(() => {
       setLoading(false);
     }, 3000);
-  }, [position]);
-  // console.log(users);
-  // console.log(userId);
-  const resetState = () => {
-    setPosition(''); // Restablece el estado a su valor inicial
-  };
-  let userLocation = locations?.find((location) => location.id === userId);
-  let userPosition = {
-    lat: userLocation?.latitude,
-    lng: userLocation?.longitude,
-  };
-  let userData = users?.find((user) => user.id === userId);
-  // let position = {
-  //   lat: userLocationData?.latitude,
-  //   lng: userLocationData?.longitude,
-  // };
+  }, []);
 
-  //console.log(mapCenter);
+  useEffect(() => {
+    const updateLocation = () => {
+      const location = locations.find((location) => location.id === userId);
+      setUserLocation(location);
+      if (location) {
+        setPosition({ lat: location.latitude, lng: location.longitude });
+        if (map) {
+          map.setView(
+            { lat: location.latitude, lng: location.longitude },
+            map.getZoom()
+          );
+        }
+      } else {
+        setPosition({ lat: null, lng: null });
+      }
+    };
+
+    updateLocation(); // Llama a la función una vez inmediatamente
+
+    const intervalId = setInterval(() => {
+      getLocationData();
+      updateLocation();
+    }, 6000);
+
+    return () => clearInterval(intervalId); // Limpia el intervalo cuando el componente se desmonte
+  }, [locations, userId, map]);
 
   const onChange = (e) => {
-    resetState();
-    // Dividir la cadena en dos partes usando split(',')
-    const valuesArray = e.split(",");
+    let valuesArray = e.split(",");
     setUserId(valuesArray[0]);
-    // Crear un objeto con las dos partes
-    const valuesObject = {
-      id: valuesArray[0],
-      lat: valuesArray[1],
-      lng: valuesArray[2],
-    };
     let latLng = {
-      lat: valuesObject.lat,
-      lng: valuesObject.lng,
+      lat: parseFloat(valuesArray[1]),
+      lng: parseFloat(valuesArray[2]),
     };
-    //console.log(coordenadasObjeto.id);
-
-    console.log("onChange:", latLng);
-    setPosition("");
     setPosition(latLng);
-    if (map) {
-      map.setView(latLng, map.getZoom());
-    }
+    setMessageSent(false); // Restablece el estado del mensaje cuando se selecciona un nuevo usuario
   };
-
-  // Definir los límites del rango de coordenadas
+  const centerOut = {
+    lat: -35.4364,
+    lng: -71.64442,
+  };
   const bounds = {
-    north: -35.4264, // 0.01 grados al norte
-    south: -35.4464, // 0.01 grados al sur
-    east: -71.6076, // 0.01 grados al este
-    west: -71.6276, // 0.01 grados al oeste
+    north: centerOut.lat + 0.05, // Aumenta 0.1 grados hacia el norte
+    south: centerOut.lat - 0.05, // Disminuye 0.1 grados hacia el sur
+    east: centerOut.lng + 0.05, // Aumenta 0.1 grados hacia el este
+    west: centerOut.lng - 0.05, // Disminuye 0.1 grados hacia el oeste
   };
 
-  // Función para verificar si la posición está dentro de los límites
   const isWithinBounds = ({ lat, lng }) => {
     return (
       lat <= bounds.north &&
@@ -153,16 +129,18 @@ function App() {
   };
 
   useEffect(() => {
-    if (userId != "") {
-      if (!isWithinBounds(position)) {
+    if (userId !== "") {
+      const outOfBounds = !isWithinBounds(position);
+      console.log(outOfBounds);
+      if (outOfBounds && !messageSent) {
         console.log("Este usuario está fuera del rango permitido");
-        // Aquí puedes agregar lógica adicional si la posición está fuera del rango
         axios.get("/send-message");
+        setMessageSent(true); // Marca el mensaje como enviado
+      } else if (!outOfBounds) {
+        setMessageSent(false); // Restablece el estado si vuelve dentro del rango
       }
     }
-  }, [position]);
-
-  //console.log(position);
+  }, [position, userId, messageSent]);
 
   const customIcon = new Icon({
     iconUrl: gpsIcon,
@@ -171,136 +149,7 @@ function App() {
   });
 
   const zoom = 17;
-  if (!loading) {
-    if (userId === "") {
-      //console.log("No user selected");
-      return (
-        <section>
-          <div className="">
-            <h1 className="font-bold mb-6">Bienvenido</h1>
-          </div>
-          <select
-            className="w-full h-10 px-3 text-center font-semibold rounded-lg"
-            name=""
-            id=""
-            onChange={(e) => onChange(e.target.value)}
-          >
-            <option selected={true} value="">
-              Seleccione un usuario...
-            </option>
-            {locations?.map((location) => (
-              <option
-                key={location.id}
-                value={[location.id, location.latitude, location.longitude]}
-              >
-                {users?.map((user) =>
-                  user.id === location.userId ? user.nombre : ""
-                )}
-              </option>
-            ))}
-          </select>
-        </section>
-      );
-    } else {
-      const fillBlueOptions = { fillColor: "blue" };
-      const purpleOptions = { color: "red" };
-      return (
-        <main>
-          <h1 className="font-bold mb-6">Ubicación</h1>
-          <div>
-            {
-              <section className="flex flex-row gap-3 rounded-lg">
-                <div className="bg-white rounded-lg p-5 text-left text-gray-700 w-64">
-                  <h4 className="font-bold text-[17px] mb-2">
-                    Información adicional
-                  </h4>
-                  <ul className="text-left text-sm">
-                    <li>
-                      <b>Nombre: </b>
-                      {`${userData?.nombre} ${
-                        userData?.apellido ? userData?.apellido : ""
-                      } ${
-                        userData?.apellidoMaterno
-                          ? userData?.apellidoMaterno
-                          : ""
-                      }`}
-                    </li>
-                    <li>
-                      <b>Correo: </b> {userData?.email}
-                    </li>
-                    <li>
-                      <b>Teléfono: </b>
-                      {userData?.telefono}
-                    </li>
-                  </ul>
-                </div>
-                <section className="flex flex-col gap-3">
-                  <div className="rounded-lg">
-                    <MapContainer
-                      ref={setMap}
-                      center={position}
-                      zoom={zoom}
-                      scrollWheelZoom={true}
-                      className="rounded-lg h-96"
-                    >
-                      <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                      />
-                      <Circle
-                        center={centerOut}
-                        pathOptions={fillBlueOptions}
-                        radius={5000}
-                      />
-                      <Circle
-                        center={position}
-                        pathOptions={purpleOptions}
-                        radius={150}
-                      />
-                      <Marker icon={customIcon} position={position} isActive>
-                        <Popup isActive>
-                          <p>
-                            {userData?.nombre}{" "}
-                            {userData?.apellido ? userData?.apellido : ""}
-                          </p>
-                          <p>Latitud: {position.lat}</p>
-                          <p>Longitud: {position.lng}</p>
-                        </Popup>
-                      </Marker>
-                    </MapContainer>
-                  </div>
-                  <select
-                    className="w-full h-10 px-3 text-center font-semibold rounded-lg"
-                    name=""
-                    id=""
-                    onChange={(e) => onChange(e.target.value)}
-                  >
-                    <option selected={true} value="">
-                      Seleccione un usuario...
-                    </option>
-                    {locations?.map((location) => (
-                      <option
-                        key={location.id}
-                        value={[
-                          location.id,
-                          location.latitude,
-                          location.longitude,
-                        ]}
-                      >
-                        {users?.map((user) =>
-                          user.id === location.userId ? user.nombre : ""
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </section>
-              </section>
-            }
-          </div>
-        </main>
-      );
-    }
-  } else {
+  if (loading) {
     return (
       <section>
         <div className="">
@@ -310,6 +159,128 @@ function App() {
           </h1>
         </div>
       </section>
+    );
+  }
+
+  if (userId === "") {
+    return (
+      <section>
+        <div className="">
+          <h1 className="font-bold mb-6">Bienvenido</h1>
+        </div>
+        <select
+          className="w-full h-10 px-3 text-center font-semibold rounded-lg"
+          name=""
+          id=""
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option selected={true} value="">
+            Seleccione un usuario...
+          </option>
+          {locations?.map((location) => (
+            <option
+              key={location.id}
+              value={[location.id, location.latitude, location.longitude]}
+            >
+              {users?.map((user) =>
+                user.id === location.userId ? user.nombre : ""
+              )}
+            </option>
+          ))}
+        </select>
+      </section>
+    );
+  } else {
+    const fillBlueOptions = { fillColor: "blue" };
+    const purpleOptions = { color: "red" };
+    const userData = users.find((user) => user.id === userId);
+
+    return (
+      <main>
+        <h1 className="font-bold mb-6">Ubicación</h1>
+        <div>
+          <section className="flex flex-row gap-3 rounded-lg">
+            <div className="bg-white rounded-lg p-5 text-left text-gray-700 w-64">
+              <h4 className="font-bold text-[17px] mb-2">
+                Información adicional
+              </h4>
+              <ul className="text-left text-sm">
+                <li>
+                  <b>Nombre: </b>
+                  {`${userData?.nombre} ${
+                    userData?.apellido ? userData?.apellido : ""
+                  } ${
+                    userData?.apellidoMaterno ? userData?.apellidoMaterno : ""
+                  }`}
+                </li>
+                <li>
+                  <b>Correo: </b> {userData?.email}
+                </li>
+                <li>
+                  <b>Teléfono: </b>
+                  {userData?.telefono}
+                </li>
+              </ul>
+            </div>
+            <section className="flex flex-col gap-3">
+              <div className="rounded-lg">
+                <MapContainer
+                  ref={setMap}
+                  center={position}
+                  zoom={zoom}
+                  scrollWheelZoom={true}
+                  className="rounded-lg h-96"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <Circle
+                    center={centerOut}
+                    pathOptions={fillBlueOptions}
+                    radius={5000}
+                  />
+                  <Circle
+                    center={position}
+                    pathOptions={purpleOptions}
+                    radius={150}
+                  />
+                  <Marker icon={customIcon} position={position} isActive>
+                    <Popup isActive>
+                      <p>
+                        {userData?.nombre}{" "}
+                        {userData?.apellido ? userData?.apellido : ""}
+                      </p>
+                      <p>Latitud: {position.lat}</p>
+                      <p>Longitud: {position.lng}</p>
+                    </Popup>
+                  </Marker>
+                </MapContainer>
+              </div>
+              <select
+                className="w-full h-10 px-3 text-center font-semibold rounded-lg"
+                name=""
+                id=""
+                onChange={(e) => onChange(e.target.value)}
+              >
+                <option selected={true} value="">
+                  Seleccione un usuario...
+                </option>
+                {locations?.map((location) => (
+                  <option
+                    key={location.id}
+                    value={[location.id, location.latitude, location.longitude]}
+                  >
+                    {users?.map((user) =>
+                      user.id === location.userId ? user.nombre : ""
+                    )}
+                  </option>
+                ))}
+              </select>
+            </section>
+          </section>
+        </div>
+      </main>
     );
   }
 }

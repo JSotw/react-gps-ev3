@@ -1,8 +1,11 @@
 import axios from "axios";
+import dotenv from "dotenv";
+dotenv.config();
+
+console.log(dotenv.config().parsed.NODE_API_URL);
 
 const instance = axios.create({
-  baseURL: `http://localhost:3000/`,
-  // baseURL: `https://ddo-server.onrender.com/api`,
+  baseURL: dotenv.config().parsed.NODE_API_URL,
   withCredentials: true
 })
 
